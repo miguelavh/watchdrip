@@ -13,9 +13,9 @@ public class WebServiceData {
     public WebServiceExternalStatus external;
     public WebServiceGraphData graph;
 
-    public WebServiceData(BgData bgData, Bundle bgDataBundle, Boolean includeGraph) {
+    public WebServiceData(BgData bgData, Bundle bgDataBundle, Boolean includeGraph,String inRange) {
         this.status = new WebServiceStatus(bgData.isDoMgdl(), bgDataBundle);
-        this.bg = new WebServiceBgInfo(bgData);
+        this.bg = new WebServiceBgInfo(bgData,inRange);
         this.treatment = new WebServiceTreatment(bgDataBundle);
         this.pump = new WebServicePump(bgDataBundle);
         this.external = new WebServiceExternalStatus(bgDataBundle);

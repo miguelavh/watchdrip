@@ -47,6 +47,7 @@ import android.bluetooth.BluetoothGattCharacteristic;
 import android.bluetooth.BluetoothGattService;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.os.Build;
@@ -55,6 +56,8 @@ import android.os.PowerManager;
 
 import androidx.annotation.RequiresApi;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import com.polidea.rxandroidble2.ConnectionParameters;
 import com.polidea.rxandroidble2.RxBleConnection;
 import com.polidea.rxandroidble2.RxBleDeviceServices;
@@ -103,6 +106,8 @@ import com.thatguysservice.huami_xdrip.webservice.WebServer;
 import org.apache.commons.lang3.ArrayUtils;
 import org.jetbrains.annotations.NotNull;
 
+import java.lang.reflect.Type;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
@@ -175,6 +180,14 @@ public class MiBandService extends BaseBluetoothSequencer {
     private Bundle latestBgDataBundle;
     private WebServer webServer;
     private boolean isConnectionStopped = true;
+
+    long lastTimeTir=0;
+    private String isNormal="1";
+    ArrayList<String> dayValues=new ArrayList<String>();
+    boolean started=false;
+
+    private String inRange="0";
+
     private WebServer.CommonGatewayInterface CGI_getInfoResponse = new WebServer.CommonGatewayInterface() {
         @Override
         public String run(Map<String, List<String>> params) {
@@ -189,7 +202,7 @@ public class MiBandService extends BaseBluetoothSequencer {
                     includeGraph = true;
                 }
             }
-            return new WebServiceData(bgDataLatest, latestBgDataBundle, includeGraph).getGson();
+            return new WebServiceData(bgDataLatest, latestBgDataBundle, includeGraph,inRange).getGson();
         }
     };
 
@@ -345,6 +358,37 @@ public class MiBandService extends BaseBluetoothSequencer {
         final PowerManager.WakeLock wl = Helper.getWakeLock("Miband service", 60000);
         try {
             if (shouldServiceRun()) {
+
+
+                if(!started) {
+                    started = true;
+                    try {
+                        SharedPreferences prefs = this.getSharedPreferences("APP_DATA", Context.MODE_PRIVATE);
+                        Gson gson = new Gson();
+
+                        String json = prefs.getString("tirData", null);
+                        Type type = new TypeToken<ArrayList<String>>() {
+                        }.getType();
+                        dayValues = gson.fromJson(json, type);
+                        if (dayValues == null)
+                            dayValues = new ArrayList<String>();
+                    } catch (Exception e) {
+                        dayValues = new ArrayList<String>();
+                    }
+                    if (dayValues.size() > 1)
+                        isNormal = dayValues.get(dayValues.size() - 1);
+                    else
+                        isNormal = "1";
+
+                    SimpleDateFormat dateFormat = new SimpleDateFormat("ddMMyyyy");
+                    Date todayDate = new Date();
+                    String todayString = dateFormat.format(todayDate);
+                    if (dayValues.isEmpty() || (dayValues.size()>0 && !dayValues.get(0).equals(todayString))) {
+                        dayValues.clear();
+                        dayValues.add(todayString);
+                    }
+                }
+
                 String function = null;
                 if (intent != null) {
                     function = intent.getStringExtra(INTENT_FUNCTION_KEY);
@@ -1757,10 +1801,68 @@ public class MiBandService extends BaseBluetoothSequencer {
         bgDataLatest = new BgData(bundle);
         bgDataRepository.setNewBgData(bgDataLatest);
         bgDataRepository.setNewConnectionState(HuamiXdrip.gs(R.string.xdrip_app_received_data));
+
+        try {
+
+            if(dayValues.size()>0) {
+                SimpleDateFormat dateFormat = new SimpleDateFormat("ddMMyyyy");
+                Date nowDate = new Date();
+                String todayString = dateFormat.format(nowDate);
+                if (!dayValues.get(0).equals(todayString)) {
+                    dayValues.clear();
+                    dayValues.add(todayString);
+                }
+
+                long time = bgDataLatest.getTimeStamp();
+
+                if (lastTimeTir != time) {
+                    Date midnightDate = dateFormat.parse(todayString);
+                    long minutes = (nowDate.getTime() - midnightDate.getTime()) / 1000 / 60;
+                    while (dayValues.size() < minutes) {
+                        dayValues.add(isNormal);
+                    }
+                    boolean isHigh = bgDataLatest.isBgHigh();
+                    boolean isLow = bgDataLatest.isBgLow();
+
+                    if (isHigh || isLow)
+                        isNormal = "0";
+                    else
+                        isNormal = "1";
+
+                    lastTimeTir = time;
+                    dayValues.add(isNormal);
+
+                    SharedPreferences prefs = this.getSharedPreferences("APP_DATA", Context.MODE_PRIVATE);
+                    SharedPreferences.Editor editor = prefs.edit();
+
+                    Gson gson = new Gson();
+                    String json = gson.toJson(dayValues);
+
+                    editor.putString("tirData", json);
+                    editor.apply();
+                    int inRangeInt = 0;
+                    int i = 1;
+                    while (i < dayValues.size()) {
+                        String valor = dayValues.get(i++);
+                        if (valor.equals("1"))
+                            inRangeInt++;
+                    }
+
+                    inRangeInt = (int) Math.ceil(((double) 100 / ((double) dayValues.size() - 1)) * (double) inRangeInt);
+                    if(inRangeInt>100)
+                        inRangeInt=100;
+                    //inRangeInt = (int) Math.round(((double) 100 / ((double) 1440)) * (double) inRangeInt);
+                    inRange = "" + inRangeInt;
+                }
+            }
+        } catch (Exception e) {
+
+        }
+
         if (!forceXiaomiService && isNightMode) {
             return;
         }
-        XiaomiWearService.bgForce(new WebServiceData(bgDataLatest, latestBgDataBundle, true).getGson());
+        XiaomiWearService.bgForce(new WebServiceData(bgDataLatest, latestBgDataBundle, true,inRange).getGson());
     }
 
     private void updateBgData() {

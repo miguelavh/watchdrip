@@ -3,6 +3,8 @@ package com.thatguysservice.huami_xdrip.models.webservice;
 import com.thatguysservice.huami_xdrip.models.BgData;
 
 public class WebServiceBgInfo {
+    public String tir;
+
     public String val;
     public String delta;
     public String trend;
@@ -11,7 +13,8 @@ public class WebServiceBgInfo {
     public long time;
     public boolean isStale;
 
-    public WebServiceBgInfo(BgData bgData) {
+    public WebServiceBgInfo(BgData bgData,String inRange) {
+      this.tir = inRange;
       this.val = bgData.unitizedBgValue();
       this.delta = bgData.unitizedDelta();
       this.trend = bgData.getDeltaName();
